@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Stepnote</string>
+    <string name="widget_name">Stepnote 歩数</string>
+    <string name="widget_description">今日の歩数と目標までの進捗を静かに表示します</string>
+    <string name="privacy_policy_title">プライバシーポリシーとデータ保護</string>
+</resources>
