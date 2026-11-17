@@ -15,6 +15,15 @@ class CalculateStepStatsUseCaseTest {
     private val useCase = CalculateStepStatsUseCase()
 
     @Test
+    fun `height sets the estimated stride and old manual setting remains the fallback`() {
+        assertEquals(71, useCase.estimateStrideCm(170, 65))
+        assertEquals(65, useCase.estimateStrideCm(null, 65))
+        assertEquals(65, useCase.estimateStrideCm(260, 65))
+        assertEquals(710.0, useCase.estimateDistanceMeters(1_000L, useCase.estimateStrideCm(170, 65)), 0.001)
+        assertEquals(27.335, useCase.estimateCaloriesKcal(1_000L, 71, 70f)!!, 0.001)
+    }
+
+    @Test
     fun `progressFraction clamps at 100 percent while exact percent allows exceeding 100`() {
         assertEquals(0f, useCase.progressFraction(0L, 10_000), 0.0001f)
         assertEquals(0.0001f, useCase.progressFraction(1L, 10_000), 0.0001f)

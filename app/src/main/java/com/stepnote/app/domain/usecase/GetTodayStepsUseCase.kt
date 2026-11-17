@@ -39,20 +39,25 @@ class GetTodayStepsUseCase(
                         localDate = today,
                         goal = prefs.dailyGoal,
                         activeSource = summary.dataSource,
-                        message = "計測の準備ができました。スマホを持ち歩くとここに今日の歩数が表示されます。"
+                        message = if (summary.sourceScope == SourceScope.GOOGLE_FIT) {
+                            "Google Fitから今日の歩数がまだ共有されていません。Google Fitの設定で「ヘルスコネクトとFitを同期」を確認してください。"
+                        } else {
+                            "計測の準備ができました。スマホを持ち歩くとここに今日の歩数が表示されます。"
+                        }
                     )
                 } else {
+                    val stride = statsUseCase.estimateStrideCm(prefs.heightCm, prefs.strideCm)
                     StepUiState.Content(
                         summary = summary,
                         hourlyBuckets = hourly,
                         estimatedDistanceMeters = statsUseCase.estimateDistanceMeters(
                             summary.steps,
-                            prefs.strideCm
+                            stride
                         ),
                         estimatedCaloriesKcal = if (prefs.showCalories) {
                             statsUseCase.estimateCaloriesKcal(
                                 summary.steps,
-                                prefs.strideCm,
+                                stride,
                                 prefs.weightKg
                             )
                         } else {

@@ -1,5 +1,13 @@
 # Stepnote 検証レポート
 
+## v0.1.1（2026-11-17 JST）
+
+- `assembleDebug` と `assembleDebugAndroidTest` が成功。旧版とアプリ ID・署名証明書が一致し、versionCode は 2。
+- `testDebugUnitTest` は 12 件成功。身長による推定歩幅、未入力時の歩幅、距離とカロリー、日付をまたぐ区間、終了時刻と取得元の保持を検証。
+- 実機は未接続。Google Fit との同時刻の実測比較、更新 APK の上書きインストール、歩行中の区間計測は未検証。
+
+## v0.1.0
+
 2026-11-16（JST）。実機は Xiaomi 14T（XIG07）、Android 16 / API 36、Android 14 SDK Extension 23。歩数カウンターと歩数検出センサーを ADB で確認。
 
 ## 確認済み

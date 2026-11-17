@@ -8,6 +8,10 @@ import kotlin.math.roundToInt
 
 class CalculateStepStatsUseCase {
 
+    fun estimateStrideCm(heightCm: Int?, fallbackStrideCm: Int): Int =
+        heightCm?.takeIf { it in 80..250 }?.let { (it * 0.415).roundToInt() }
+            ?: fallbackStrideCm.coerceIn(30, 140)
+
     fun estimateDistanceMeters(steps: Long, strideCm: Int): Double {
         val safeSteps = steps.coerceAtLeast(0L)
         val safeStrideCm = strideCm.coerceIn(30, 140)
@@ -16,14 +20,14 @@ class CalculateStepStatsUseCase {
 
     /**
      * Only calculates calories when the user explicitly opts in and provides body weight.
-     * Standard walking approximation (~0.04 kcal/step scaled gently by weight/70kg).
+     * Walking estimate based on distance and weight.
      */
     fun estimateCaloriesKcal(
         steps: Long,
         strideCm: Int,
         weightKg: Float?
     ): Double? {
-        if (weightKg == null || weightKg <= 20f || weightKg >= 300f) return null
+        if (weightKg == null || !weightKg.isFinite() || weightKg <= 20f || weightKg >= 300f) return null
         val distanceKm = estimateDistanceMeters(steps, strideCm) / 1000.0
         // Walking metabolic approximation: ~0.55 kcal * weightKg * distanceKm
         return distanceKm * weightKg * 0.55

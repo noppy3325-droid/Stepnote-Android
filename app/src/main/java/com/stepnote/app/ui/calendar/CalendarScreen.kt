@@ -107,7 +107,7 @@ class CalendarViewModel(
                 selectedDate = selected,
                 daysMap = monthData.days.associateBy { it.localDate },
                 selectedHourly = selectedDayData.hourlyForSelectedDay,
-                strideCm = prefs.strideCm,
+                strideCm = statsUseCase.estimateStrideCm(prefs.heightCm, prefs.strideCm),
                 dailyGoal = prefs.dailyGoal
             )
         }

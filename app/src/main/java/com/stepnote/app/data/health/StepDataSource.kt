@@ -4,6 +4,7 @@ import com.stepnote.app.domain.model.DailyStepSummary
 import com.stepnote.app.domain.model.HourlyStepSummary
 import com.stepnote.app.domain.model.SourceScope
 import com.stepnote.app.domain.model.StepSourceKind
+import com.stepnote.app.domain.model.StepInterval
 import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
 import java.time.Instant
@@ -32,6 +33,10 @@ interface StepDataSource {
     suspend fun isAvailable(scope: SourceScope): Boolean
     suspend fun hasRequiredPermissions(): Boolean
     suspend fun hasBackgroundPermission(): Boolean
+
+    suspend fun prepareInterval(scope: SourceScope): SourceFetchResult<Unit>
+
+    suspend fun fetchInterval(interval: StepInterval, scope: SourceScope): SourceFetchResult<Long?>
 
     suspend fun fetchDailyTotal(
         date: LocalDate,

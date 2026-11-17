@@ -18,6 +18,7 @@ import com.stepnote.app.domain.model.DataStatus
 import com.stepnote.app.domain.model.HourlyStepSummary
 import com.stepnote.app.domain.model.SourceScope
 import com.stepnote.app.domain.model.StepSourceKind
+import com.stepnote.app.domain.model.StepInterval
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
@@ -45,7 +46,7 @@ class HealthConnectStepSource(
         val snapshot = capabilityChecker.inspectSync()
         if (snapshot.healthConnectSdkStatus != HealthConnectClient.SDK_AVAILABLE) return false
         return when (scope) {
-            SourceScope.ALL_HEALTH_CONNECT -> true
+            SourceScope.ALL_HEALTH_CONNECT, SourceScope.GOOGLE_FIT -> true
             SourceScope.THIS_PHONE_ONLY -> {
                 // Must have device auto-step collection (Extension >= 20) AND origin resolution
                 snapshot.hasStepCounterSensor &&
@@ -73,6 +74,9 @@ class HealthConnectStepSource(
     private suspend fun resolveDeviceDataOriginFilter(scope: SourceScope): Set<DataOrigin>? {
         if (scope == SourceScope.ALL_HEALTH_CONNECT) {
             return emptySet() // Unfiltered: Health Connect deduplicates across all sources
+        }
+        if (scope == SourceScope.GOOGLE_FIT) {
+            return setOf(DataOrigin("com.google.android.apps.fitness"))
         }
 
         val snapshot = capabilityChecker.inspectSync()
@@ -117,6 +121,26 @@ class HealthConnectStepSource(
         aggregateDay(client, origins, date, zoneId, goal, scope, asOf)
     }
 
+    override suspend fun prepareInterval(scope: SourceScope): SourceFetchResult<Unit> =
+        withOrigins(scope) { _, _ -> Unit }
+
+    override suspend fun fetchInterval(
+        interval: StepInterval,
+        scope: SourceScope
+    ): SourceFetchResult<Long?> = withOrigins(scope) { client, origins ->
+        countSteps(client, origins, interval.start, interval.end)
+    }
+
+    private suspend fun countSteps(
+        client: HealthConnectClient, origins: Set<DataOrigin>, start: Instant, end: Instant
+    ): Long? = client.aggregate(
+        AggregateRequest(
+            metrics = setOf(StepsRecord.COUNT_TOTAL),
+            timeRangeFilter = TimeRangeFilter.between(start, end),
+            dataOriginFilter = origins
+        )
+    )[StepsRecord.COUNT_TOTAL]
+
     private suspend fun <T> withOrigins(
         scope: SourceScope,
         query: suspend (HealthConnectClient, Set<DataOrigin>) -> T
@@ -147,17 +171,7 @@ class HealthConnectStepSource(
         now: Instant
     ): DailyStepSummary {
         val window = stepDayWindow(date, zoneId, now)
-        val count = if (window != null) {
-            client.aggregate(
-                AggregateRequest(
-                    metrics = setOf(StepsRecord.COUNT_TOTAL),
-                    timeRangeFilter = TimeRangeFilter.between(window.start, window.end),
-                    dataOriginFilter = origins
-                )
-            )[StepsRecord.COUNT_TOTAL]
-        } else {
-            null
-        }
+        val count = window?.let { countSteps(client, origins, it.start, it.end) }
         val status = when (count) {
             null -> DataStatus.UNMEASURED
             0L -> DataStatus.CONFIRMED_ZERO

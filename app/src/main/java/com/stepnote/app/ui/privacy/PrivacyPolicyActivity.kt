@@ -45,7 +45,7 @@ class PrivacyPolicyActivity : ComponentActivity() {
                         Text(
                             text = """
                                 1. 外部送信を行いません
-                                Stepnote はインターネット通信権限を持たず、歩数・設定・体重などのデータを開発者や第三者のサーバーへ一切送信しません。
+                                Stepnote はインターネット通信権限を持たず、歩数・区間計測・身長・体重などのデータを開発者や第三者のサーバーへ一切送信しません。
 
                                 2. 使用する権限とその目的
                                 ・READ_STEPS: Health Connect から歩数を読み取り、日次・時間帯別の集計を表示するためのみに使用します（書き込み権限 WRITE_STEPS は要求しません）。

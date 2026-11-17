@@ -11,6 +11,7 @@ import com.stepnote.app.domain.model.DataStatus
 import com.stepnote.app.domain.model.HourlyStepSummary
 import com.stepnote.app.domain.model.SourceScope
 import com.stepnote.app.domain.model.StepSourceKind
+import com.stepnote.app.domain.model.StepInterval
 import kotlinx.coroutines.tasks.await
 import java.time.Duration
 import java.time.Instant
@@ -66,6 +67,37 @@ class LocalRecordingStepSource(
         }
     }
 
+    override suspend fun prepareInterval(scope: SourceScope): SourceFetchResult<Unit> =
+        if (scope == SourceScope.THIS_PHONE_ONLY) ensureSubscribed() else
+            SourceFetchResult.Unavailable("開始時の取得元が利用できません。", false)
+
+    override suspend fun fetchInterval(
+        interval: StepInterval, scope: SourceScope
+    ): SourceFetchResult<Long?> {
+        if (interval.start < Instant.now().minus(Duration.ofDays(10))) {
+            return SourceFetchResult.Unavailable("Recording API の読み取り可能期間を過ぎています。", false)
+        }
+        return when (val prepared = prepareInterval(scope)) {
+            is SourceFetchResult.Success -> readTotal(interval.start.toEpochMilli(), interval.end.toEpochMilli())
+            is SourceFetchResult.PermissionMissing -> prepared
+            is SourceFetchResult.Unavailable -> prepared
+            is SourceFetchResult.Failure -> prepared
+        }
+    }
+
+    private suspend fun readTotal(startMillis: Long, endMillis: Long): SourceFetchResult<Long?> =
+        fetchSteps("Recording API からの歩数読み取りに失敗しました。") {
+            if (startMillis >= endMillis) return@fetchSteps null
+            val request = LocalDataReadRequest.Builder()
+                .aggregate(LocalDataType.TYPE_STEP_COUNT_DELTA)
+                .bucketByTime(1, TimeUnit.DAYS)
+                .setTimeRange(startMillis, endMillis, TimeUnit.MILLISECONDS)
+                .build()
+            val points = FitnessLocal.getLocalRecordingClient(context).readData(request).await()
+                .buckets.flatMap { bucket -> bucket.dataSets.flatMap { it.dataPoints } }
+            points.takeIf { it.isNotEmpty() }?.sumOf { it.getValue(LocalField.FIELD_STEPS).asInt().toLong() }
+        }
+
     override suspend fun fetchDailyTotal(
         date: LocalDate,
         zoneId: ZoneId,
@@ -85,41 +117,18 @@ class LocalRecordingStepSource(
             )
         }
 
-        return fetchSteps("Recording API からの歩数読み取りに失敗しました。") {
-            val client = FitnessLocal.getLocalRecordingClient(context)
-            val request = LocalDataReadRequest.Builder()
-                .aggregate(LocalDataType.TYPE_STEP_COUNT_DELTA)
-                .bucketByTime(1, TimeUnit.DAYS)
-                .setTimeRange(startMillis, endMillis, TimeUnit.MILLISECONDS)
-                .build()
-
-            val response = client.readData(request).await()
-            var totalSteps = 0L
-            var hasBucketData = false
-            for (bucket in response.buckets) {
-                for (dataSet in bucket.dataSets) {
-                    for (dp in dataSet.dataPoints) {
-                        hasBucketData = true
-                        totalSteps += dp.getValue(LocalField.FIELD_STEPS).asInt().toLong()
-                    }
+        return when (val result = readTotal(startMillis, endMillis)) {
+            is SourceFetchResult.Success -> {
+                val status = when (result.data) {
+                    null -> DataStatus.UNMEASURED
+                    0L -> DataStatus.CONFIRMED_ZERO
+                    else -> DataStatus.MEASURED
                 }
+                SourceFetchResult.Success(DailyStepSummary(date, result.data ?: 0, goal, kind, scope, asOf, status))
             }
-
-            val status = when {
-                !hasBucketData -> DataStatus.UNMEASURED
-                totalSteps == 0L -> DataStatus.CONFIRMED_ZERO
-                else -> DataStatus.MEASURED
-            }
-
-            DailyStepSummary(
-                localDate = date,
-                steps = totalSteps,
-                goal = goal,
-                dataSource = StepSourceKind.LOCAL_RECORDING,
-                sourceScope = SourceScope.THIS_PHONE_ONLY,
-                fetchedAt = asOf,
-                status = status
-            )
+            is SourceFetchResult.PermissionMissing -> result
+            is SourceFetchResult.Unavailable -> result
+            is SourceFetchResult.Failure -> result
         }
     }
 

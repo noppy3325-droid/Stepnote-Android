@@ -32,6 +32,7 @@ import androidx.health.connect.client.PermissionController
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -49,6 +50,8 @@ import com.stepnote.app.ui.history.HistoryScreen
 import com.stepnote.app.ui.history.HistoryViewModel
 import com.stepnote.app.ui.home.HomeScreen
 import com.stepnote.app.ui.home.HomeViewModel
+import com.stepnote.app.ui.home.WalkSessionCard
+import com.stepnote.app.ui.home.WalkSessionViewModel
 import com.stepnote.app.ui.onboarding.OnboardingScreen
 import com.stepnote.app.ui.settings.SettingsScreen
 import com.stepnote.app.ui.settings.SettingsViewModel
@@ -57,6 +60,7 @@ import com.stepnote.app.ui.theme.StepnoteTheme
 import com.stepnote.app.widget.StepnoteWidget
 import com.stepnote.app.worker.StepSyncWorker
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 private object Routes {
     const val TODAY = "today"
@@ -103,6 +107,9 @@ class MainActivity : ComponentActivity() {
                 val settingsVm = viewModel {
                     SettingsViewModel(container.preferencesRepository, container.stepRepository)
                 }
+                val walkVm = viewModel {
+                    WalkSessionViewModel(container.stepRepository, container.preferencesRepository)
+                }
 
                 val hcPermissionLauncher = rememberLauncherForActivityResult(
                     contract = PermissionController.createRequestPermissionResultContract()
@@ -138,6 +145,7 @@ class MainActivity : ComponentActivity() {
                         if (event == Lifecycle.Event.ON_RESUME) {
                             homeVm.refresh()
                             settingsVm.refreshDiagnostics()
+                            walkVm.refresh(onlyRunning = true)
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -188,6 +196,7 @@ class MainActivity : ComponentActivity() {
                         historyVm = historyVm,
                         calendarVm = calendarVm,
                         settingsVm = settingsVm,
+                        walkVm = walkVm,
                         onRequestPermissions = requestPermissions,
                         onRequestBackground = {
                             hcPermissionLauncher.launch(
@@ -207,6 +216,7 @@ private fun StepnoteMainScaffold(
     historyVm: HistoryViewModel,
     calendarVm: CalendarViewModel,
     settingsVm: SettingsViewModel,
+    walkVm: WalkSessionViewModel,
     onRequestPermissions: (StepSourceKind) -> Unit,
     onRequestBackground: () -> Unit
 ) {
@@ -269,13 +279,40 @@ private fun StepnoteMainScaffold(
         ) {
             composable(Routes.TODAY) {
                 val state by homeVm.uiState.collectAsState()
+                val walk by walkVm.session.collectAsState()
+                val walkMessage by walkVm.message.collectAsState()
+                val walkChanging by walkVm.changing.collectAsState()
+                val lifecycle = LocalLifecycleOwner.current.lifecycle
+                val running = walk?.let { it.stoppedAt == null } == true
+                LaunchedEffect(lifecycle, running) {
+                    if (running) lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                        walkVm.refresh(onlyRunning = true)
+                        while (true) {
+                            delay(60_000)
+                            walkVm.refresh(onlyRunning = true)
+                        }
+                    }
+                }
                 HomeScreen(
                     uiState = state,
                     statsUseCase = homeVm.statsUseCase,
-                    onRefresh = homeVm::refresh,
+                    onRefresh = {
+                        homeVm.refresh()
+                        walkVm.refresh()
+                    },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                     onRequestPermissions = onRequestPermissions,
-                    onSwitchToRecordingFallback = homeVm::switchToRecordingFallback
+                    onSwitchToRecordingFallback = homeVm::switchToRecordingFallback,
+                    walkSessionContent = {
+                        WalkSessionCard(
+                            session = walk,
+                            message = walkMessage,
+                            changing = walkChanging,
+                            onStart = walkVm::start,
+                            onStop = walkVm::stop,
+                            onRefresh = { walkVm.refresh() }
+                        )
+                    }
                 )
             }
             composable(Routes.HISTORY) {
@@ -310,7 +347,7 @@ private fun StepnoteMainScaffold(
                     onUpdateSourceScope = settingsVm::updateSourceScope,
                     onUpdateRecordingSource = settingsVm::updateRecordingSource,
                     onUpdateStrideCm = settingsVm::updateStrideCm,
-                    onUpdateCalorieSettings = settingsVm::updateCalorieSettings,
+                    onUpdateBodyProfile = settingsVm::updateBodyProfile,
                     onClearLocalData = settingsVm::clearLocalData,
                     onRequestBackground = onRequestBackground
                 )

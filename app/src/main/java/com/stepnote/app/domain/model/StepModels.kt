@@ -11,7 +11,8 @@ enum class StepSourceKind(val label: String) {
 
 enum class SourceScope(val label: String) {
     THIS_PHONE_ONLY("このスマホのみ"),
-    ALL_HEALTH_CONNECT("Health Connect 全対応データ")
+    ALL_HEALTH_CONNECT("Health Connect 全対応データ"),
+    GOOGLE_FIT("Google Fit の記録")
 }
 
 enum class DataStatus {

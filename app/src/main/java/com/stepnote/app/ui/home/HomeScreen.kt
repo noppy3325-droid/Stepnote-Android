@@ -89,6 +89,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onRequestPermissions: (StepSourceKind) -> Unit,
     onSwitchToRecordingFallback: () -> Unit,
+    walkSessionContent: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LocalStepnoteColors.current
@@ -259,7 +260,7 @@ fun HomeScreen(
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "推定消費エネルギー",
+                                    text = "推定消費カロリー",
                                     color = colors.textSecondary,
                                     fontSize = 12.sp
                                 )
@@ -366,5 +367,7 @@ fun HomeScreen(
                 )
             }
         }
+        Spacer(modifier = Modifier.height(20.dp))
+        walkSessionContent()
     }
 }

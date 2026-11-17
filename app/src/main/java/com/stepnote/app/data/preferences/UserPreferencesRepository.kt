@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.stepnote.app.domain.model.SourceScope
 import com.stepnote.app.domain.model.StepSourceKind
 import com.stepnote.app.domain.model.ThemeMode
+import com.stepnote.app.domain.model.WalkSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -27,6 +28,7 @@ data class UserPreferences(
     val strideCm: Int = 70,
     val showCalories: Boolean = false,
     val weightKg: Float? = null,
+    val heightCm: Int? = null,
     val onboardingCompleted: Boolean = false,
     val lastSyncAt: Instant? = null
 )
@@ -41,6 +43,12 @@ class UserPreferencesRepository(private val context: Context) {
         val STRIDE_CM = intPreferencesKey("stride_cm")
         val SHOW_CALORIES = booleanPreferencesKey("show_calories")
         val WEIGHT_KG = floatPreferencesKey("weight_kg")
+        val HEIGHT_CM = intPreferencesKey("height_cm")
+        val WALK_START = longPreferencesKey("walk_start")
+        val WALK_STOP = longPreferencesKey("walk_stop")
+        val WALK_SOURCE = stringPreferencesKey("walk_source")
+        val WALK_SCOPE = stringPreferencesKey("walk_scope")
+        val WALK_STEPS = longPreferencesKey("walk_steps")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val LAST_SYNC_EPOCH_MILLIS = longPreferencesKey("last_sync_epoch_millis")
     }
@@ -60,6 +68,7 @@ class UserPreferencesRepository(private val context: Context) {
             strideCm = (prefs[Keys.STRIDE_CM] ?: 70).coerceIn(30, 140),
             showCalories = prefs[Keys.SHOW_CALORIES] ?: false,
             weightKg = prefs[Keys.WEIGHT_KG],
+            heightCm = prefs[Keys.HEIGHT_CM],
             onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
             lastSyncAt = prefs[Keys.LAST_SYNC_EPOCH_MILLIS]?.let { Instant.ofEpochMilli(it) }
         )
@@ -91,15 +100,47 @@ class UserPreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.STRIDE_CM] = strideCm.coerceIn(30, 140) }
     }
 
-    suspend fun setCalorieSettings(enabled: Boolean, weightKg: Float?) {
+    suspend fun setBodyProfile(heightCm: Int?, weightKg: Float?) {
         context.dataStore.edit { prefs ->
-            prefs[Keys.SHOW_CALORIES] = enabled
+            if (heightCm != null) prefs[Keys.HEIGHT_CM] = heightCm else prefs.remove(Keys.HEIGHT_CM)
+            prefs[Keys.SHOW_CALORIES] = weightKg != null
             if (weightKg != null) {
                 prefs[Keys.WEIGHT_KG] = weightKg.coerceIn(25f, 250f)
             } else {
                 prefs.remove(Keys.WEIGHT_KG)
             }
         }
+    }
+
+    val walkSessionFlow: Flow<WalkSession?> = context.dataStore.data.map { it.walkSession() }
+
+    suspend fun saveWalkSession(expected: WalkSession?, session: WalkSession): Boolean {
+        var saved = false
+        context.dataStore.edit { prefs ->
+            if (prefs.walkSession() != expected) return@edit
+            prefs[Keys.WALK_START] = session.startedAt.toEpochMilli()
+            prefs[Keys.WALK_SOURCE] = session.source.name
+            prefs[Keys.WALK_SCOPE] = session.scope.name
+            val end = session.stoppedAt
+            if (end == null) prefs.remove(Keys.WALK_STOP) else prefs[Keys.WALK_STOP] = end.toEpochMilli()
+            val steps = session.steps
+            if (steps == null) prefs.remove(Keys.WALK_STEPS) else prefs[Keys.WALK_STEPS] = steps
+            saved = true
+        }
+        return saved
+    }
+
+    private fun Preferences.walkSession(): WalkSession? {
+        val start = this[Keys.WALK_START] ?: return null
+        val source = StepSourceKind.entries.firstOrNull { it.name == this[Keys.WALK_SOURCE] } ?: return null
+        val scope = SourceScope.entries.firstOrNull { it.name == this[Keys.WALK_SCOPE] } ?: return null
+        return WalkSession(
+            startedAt = Instant.ofEpochMilli(start),
+            stoppedAt = this[Keys.WALK_STOP]?.let(Instant::ofEpochMilli),
+            scope = scope,
+            source = source,
+            steps = this[Keys.WALK_STEPS]
+        )
     }
 
     suspend fun setOnboardingCompleted(completed: Boolean) {

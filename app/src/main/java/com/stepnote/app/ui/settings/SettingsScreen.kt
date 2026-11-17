@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -27,19 +28,20 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.HealthConnectClient
@@ -111,8 +113,8 @@ class SettingsViewModel(
         viewModelScope.launch { prefsRepository.setStrideCm(cm) }
     }
 
-    fun updateCalorieSettings(enabled: Boolean, weightKg: Float?) {
-        viewModelScope.launch { prefsRepository.setCalorieSettings(enabled, weightKg) }
+    fun updateBodyProfile(heightCm: Int?, weightKg: Float?) {
+        viewModelScope.launch { prefsRepository.setBodyProfile(heightCm, weightKg) }
     }
 
     fun clearLocalData(resetPreferences: Boolean) {
@@ -133,7 +135,7 @@ fun SettingsScreen(
     onUpdateSourceScope: (SourceScope) -> Unit,
     onUpdateRecordingSource: (StepSourceKind) -> Unit,
     onUpdateStrideCm: (Int) -> Unit,
-    onUpdateCalorieSettings: (Boolean, Float?) -> Unit,
+    onUpdateBodyProfile: (Int?, Float?) -> Unit,
     onClearLocalData: (Boolean) -> Unit,
     onRequestBackground: () -> Unit,
     modifier: Modifier = Modifier
@@ -141,8 +143,11 @@ fun SettingsScreen(
     val colors = LocalStepnoteColors.current
     val context = LocalContext.current
     var showClearDialog by remember { mutableStateOf(false) }
-    var weightText by remember(preferences.weightKg) {
-        mutableStateOf(preferences.weightKg?.toInt()?.toString().orEmpty())
+    var heightText by rememberSaveable(preferences.heightCm) {
+        mutableStateOf(preferences.heightCm?.toString().orEmpty())
+    }
+    var weightText by rememberSaveable(preferences.weightKg) {
+        mutableStateOf(preferences.weightKg?.toString()?.removeSuffix(".0").orEmpty())
     }
 
     Column(
@@ -240,10 +245,10 @@ fun SettingsScreen(
                         )
                     }
                     Text(
-                        text = if (scope == SourceScope.THIS_PHONE_ONLY) {
-                            "初期設定。このスマートフォンが記録した歩数のみを集計します。"
-                        } else {
-                            "Health Connect 内の他アプリや端末を含む全対応データを優先順で重複排除して集計します。"
+                        text = when (scope) {
+                            SourceScope.THIS_PHONE_ONLY -> "このスマートフォンが記録した歩数を集計します。"
+                            SourceScope.GOOGLE_FIT -> "Google Fit がヘルスコネクトに書き込んだ歩数を表示します。Fit アプリの集計とは反映時刻や取得元が異なる場合があります。"
+                            SourceScope.ALL_HEALTH_CONNECT -> "他のアプリや端末を含む歩数をヘルスコネクトの優先順で集計します。"
                         },
                         color = colors.textSecondary,
                         fontSize = 12.sp
@@ -271,65 +276,58 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Estimated stride
-        SectionCard(title = "推定歩幅") {
+        SectionCard(title = "身長・体重") {
+            val height = heightText.toIntOrNull()?.takeIf { it in 80..250 }
+            val weight = weightText.replace(',', '.').toFloatOrNull()?.takeIf { it in 25f..250f }
+            val invalidHeight = heightText.isNotBlank() && height == null
+            val invalidWeight = weightText.isNotBlank() && weight == null
             Text(
-                text = "${preferences.strideCm} cm (推定値)",
-                color = colors.textPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Slider(
-                value = preferences.strideCm.toFloat(),
-                onValueChange = { onUpdateStrideCm(it.roundToInt()) },
-                valueRange = 40f..110f
-            )
-            Text(
-                text = "移動距離は「歩数 × 推定歩幅」で算出される推定値です。",
+                text = "身長から歩幅と移動距離を推定し、体重を保存すると今日の推定消費カロリーを表示します。",
                 color = colors.textSecondary,
                 fontSize = 12.sp
             )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Optional calories
-        SectionCard(title = "推定消費エネルギー（任意）") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            OutlinedTextField(
+                value = heightText,
+                onValueChange = { heightText = it },
+                label = { Text("身長（cm）") },
+                supportingText = { if (invalidHeight) Text("80〜250 cmで入力してください") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = invalidHeight,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = weightText,
+                onValueChange = { weightText = it },
+                label = { Text("体重（kg）") },
+                supportingText = { if (invalidWeight) Text("25〜250 kgで入力してください") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                isError = invalidWeight,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                onClick = { onUpdateBodyProfile(height, weight) },
+                enabled = !invalidHeight && !invalidWeight &&
+                    (height != preferences.heightCm || weight != preferences.weightKg ||
+                        (weight != null && !preferences.showCalories))
             ) {
+                Text("身長・体重を保存")
+            }
+            if (preferences.heightCm == null) {
                 Text(
-                    text = "ホーム画面に表示する",
+                    text = "身長未入力時の歩幅  ${preferences.strideCm} cm",
                     color = colors.textPrimary,
                     fontSize = 14.sp
                 )
-                Switch(
-                    checked = preferences.showCalories,
-                    onCheckedChange = { checked ->
-                        val parsed = weightText.toFloatOrNull()
-                        onUpdateCalorieSettings(checked, parsed?.takeIf { it in 25f..250f })
-                    }
+                Slider(
+                    value = preferences.strideCm.toFloat(),
+                    onValueChange = { onUpdateStrideCm(it.roundToInt()) },
+                    valueRange = 30f..140f
                 )
             }
-            if (preferences.showCalories) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = weightText,
-                    onValueChange = { value ->
-                        weightText = value.filter { it.isDigit() }
-                        val weight = weightText.toFloatOrNull()?.takeIf { it in 25f..250f }
-                        onUpdateCalorieSettings(true, weight)
-                    },
-                    label = { Text("体重 (kg)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "初期設定はオフです。距離(km) × 体重(kg) × 0.55 の歩行近似式による参考値です。",
+                text = "歩幅は身長の約41.5%。消費カロリーは距離（km）× 体重（kg）× 0.55の概算です。",
                 color = colors.textSecondary,
                 fontSize = 12.sp
             )

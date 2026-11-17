@@ -17,6 +17,7 @@ import com.stepnote.app.domain.model.EnvironmentDiagnostic
 import com.stepnote.app.domain.model.HourlyStepSummary
 import com.stepnote.app.domain.model.SourceScope
 import com.stepnote.app.domain.model.StepSourceKind
+import com.stepnote.app.domain.model.WalkSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -37,7 +38,7 @@ class StepRepository(
     private val syncLock = Mutex()
 
     suspend fun resolveActiveSource(prefs: UserPreferences): StepDataSource? {
-        if (prefs.sourceScope == SourceScope.ALL_HEALTH_CONNECT) {
+        if (prefs.sourceScope != SourceScope.THIS_PHONE_ONLY) {
             return healthConnectSource.takeIf { it.isAvailable(prefs.sourceScope) }
         }
         return when (prefs.preferredSourceKind) {
@@ -62,6 +63,33 @@ class StepRepository(
             }
             StepSourceKind.NONE -> null
         }
+    }
+
+    suspend fun prepareWalkSession(startedAt: Instant): SourceFetchResult<WalkSession> {
+        val prefs = prefsRepo.preferencesFlow.first()
+        val source = resolveActiveSource(prefs)
+            ?: return SourceFetchResult.Unavailable("歩数の取得元が利用できません。", false)
+        val result = withTimeoutOrNull(12_000) { source.prepareInterval(prefs.sourceScope) }
+            ?: return SourceFetchResult.Failure("歩数の取得元を確認できませんでした。")
+        return when (result) {
+            is SourceFetchResult.Success -> SourceFetchResult.Success(
+                WalkSession(startedAt, scope = prefs.sourceScope, source = source.kind)
+            )
+            is SourceFetchResult.PermissionMissing -> result
+            is SourceFetchResult.Unavailable -> result
+            is SourceFetchResult.Failure -> result
+        }
+    }
+
+    suspend fun readWalkSession(session: WalkSession): SourceFetchResult<Long?> {
+        val interval = session.interval(Instant.now()) ?: return SourceFetchResult.Success(null)
+        val source = when (session.source) {
+            StepSourceKind.HEALTH_CONNECT -> healthConnectSource
+            StepSourceKind.LOCAL_RECORDING -> localRecordingSource
+            StepSourceKind.NONE -> return SourceFetchResult.Unavailable("開始時の取得元が利用できません。", false)
+        }
+        return withTimeoutOrNull(12_000) { source.fetchInterval(interval, session.scope) }
+            ?: SourceFetchResult.Failure("区間歩数の読み取りがタイムアウトしました。")
     }
 
     /**
